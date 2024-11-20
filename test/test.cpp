@@ -6,7 +6,7 @@ void firstTest() {
 
     void *ptr1 = _malloc(10);
     void *ptr2 = _malloc(8);
-    void *ptr3 = _malloc(4);
+    void *ptr3 = _malloc(8);
 
     printMemory();
 
@@ -20,19 +20,22 @@ void firstTest() {
     printMemory();
 
     _free(ptr1);
-    _free(ptr2);
+    _free(ptr3);
+    printMemory();
 }
 
 void secondTest() {
+    int size = 10;
+
     std::cout << "\n\n\e[0;93mTesting use of malloc-allocated array\e[0m";
 
-    int *arr = (int*)_malloc(10 * sizeof(int));
+    int *arr = (int*)_malloc(size * sizeof(int));
 
-    for(int i = 0; i < 10; i++)
+    for(int i = 0; i < size; i++)
         arr[i] = i;
 
-    std::cout << "\nPutting all numbers from 0 to 9 in an array\n";
-    for (int i = 0; i < 10; i++)
+    std::cout << "\nPutting all numbers from 0 to " << size - 1 << " in an array\n";
+    for (int i = 0; i < size; i++)
         std::cout << i << ": " << arr[i] << "\t";
     
     _free(arr);

@@ -25,7 +25,7 @@ void firstTest() {
 }
 
 void secondTest() {
-    int size = 10;
+    size_t size = 10;
 
     std::cout << "\n\n\e[0;93mTesting use of malloc-allocated array\e[0m";
 
@@ -74,6 +74,22 @@ void forthTest() {
     _free(ptr4);
 }
 
+void fifthTest() {
+    int size = 10;
+
+    std::cout << "\n\n\e[0;93mTesting calloc\e[0m";
+
+    int *arr = (int *)_calloc(size, sizeof(int));
+
+    for(int i = 0; i < size; i++)
+        if(arr[i] != 0) {
+            std::cout << "\nCalloc not working";
+            return;
+        }
+    
+    std::cout << "\nCalloc working";
+}
+
 int main() {
     std::cout << "Starting test...\n";
 
@@ -81,6 +97,7 @@ int main() {
     secondTest();
     thirdTest();
     forthTest();
+    fifthTest();
 
     return 0;
 }

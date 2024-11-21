@@ -1,4 +1,3 @@
-#include <iostream>
 #include <string.h>
 
 #include "../include/allocator.h"
@@ -64,7 +63,8 @@ static inline size_t align(size_t size) {
 }
 
 #if defined(DEBUG) 
-
+    #include <iostream>
+    
     void printMemory() {
         int i = 0;
         Block *current = heapStart;

@@ -16,7 +16,7 @@ void firstTest() {
     printMemory();
 
     std::cout << "\nAllocate a block of size Block1 + Block2";
-    ptr1 = _malloc(20);
+    ptr1 = _malloc(18);
     printMemory();
 
     _free(ptr1);
@@ -38,6 +38,7 @@ void secondTest() {
     for (int i = 0; i < size; i++)
         std::cout << i << ": " << arr[i] << "\t";
     
+    printMemory();
     _free(arr);
 }
 
@@ -65,6 +66,8 @@ void forthTest() {
 
     if (ptr4 != ptr2)
         std::cout << "Block is't correctly recycled\n";
+    else 
+        std::cout << "Block is correctly recycled";
 
     _free(ptr1);
     _free(ptr3);

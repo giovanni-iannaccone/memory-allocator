@@ -1,6 +1,5 @@
-#include <string.h>
-#include <utility>
 #include <iostream>
+#include <string.h>
 
 #include "../include/allocator.h"
 
@@ -8,7 +7,6 @@
     #include <sys/mman.h>
     #include <unistd.h>
 #elif defined(__WIN32__) || defined(__WIN64__)
-    #include <stdexcept>
     #include <windows.h>
 
     #define sbrk(X) fake_sbrk(X)
@@ -16,22 +14,22 @@
     void* fake_sbrk(size_t increment) {
         constexpr size_t MAX_HEAP_SIZE = 1024 * 1024;
 
-        static char* heapStart = nullptr;
-        static char* currentBreak = nullptr;
+        static char *heapStart = nullptr;
+        static char *currentBreak = nullptr;
 
         if (heapStart == nullptr) {
             heapStart = (char*)VirtualAlloc(nullptr, MAX_HEAP_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
             if (heapStart == nullptr)
-                throw std::runtime_error("Failed to initialize heap using VirtualAlloc");
+                return (void *)-1;
 
             currentBreak = heapStart;
         }
 
-        char* newBreak = currentBreak + increment;
+        char *newBreak = currentBreak + increment;
         if (newBreak < heapStart || newBreak > heapStart + MAX_HEAP_SIZE)
-            return (void*)-1;
+            return (void *)-1;
 
-        void* oldBreak = currentBreak;
+        void *oldBreak = currentBreak;
         currentBreak = newBreak;
 
         return oldBreak;
@@ -43,8 +41,11 @@
 #define NO_FREE_BLOCK   nullptr
 
 struct Block {
-    size_t header;
-    void *data;
+    size_t size;
+    bool free;
+    Block *prev;
+    Block *next;
+    char data[1];
 };
 
 enum class SearchMode {
@@ -55,28 +56,11 @@ enum class SearchMode {
 
 static Block *heapStart = nullptr;
 static Block *searchStart = nullptr;
-static Block *top = nullptr;    
-
+static Block *top = nullptr;
 static SearchMode searchMode = SearchMode::FirstFit;
 
-static inline size_t align(size_t n) {
-    return (n + sizeof(void*) - 1) & ~(sizeof(void*) - 1);
-}
-
-static inline size_t allocSize(size_t size) {
-  return size + sizeof(Block) - sizeof(std::declval<Block>().data);
-}
-
-static inline size_t getBlockSize(Block *block) {
-    return block->header & ~1;
-}
-
-static inline Block *getNext(Block *block) {
-    return (Block*)((char*)block + getBlockSize(block));
-}
-
-static inline bool isFree(Block *block) {
-    return block->header & 1;
+static inline size_t align(size_t size) {
+    return (size + (sizeof(void*) - 1)) & -sizeof(void*);
 }
 
 #if defined(DEBUG) 
@@ -89,148 +73,146 @@ static inline bool isFree(Block *block) {
         while (current && current <= top) {
             std::cout << "\n [+] Block " << ++i
                   << ":\taddress " << current
-                  << "\tsize " << getBlockSize(current)
-                  << "\tfree " << isFree(current);
-            current = getNext(current);
+                  << "\tsize " << current->size
+                  << "\tfree " << current->free;
+            current = current->next;
         }
         std::cout << "\n";
         
     }
 #endif
 
-static inline void setFree(Block *block, bool free) {
-    free
-        ? block->header |= 1
-        : block->header &= ~1;
-}
-
-static inline void setSize(Block *block, size_t size) {
-    block->header = size | (block->header & 1);
-}
-
-static Block *getBlock(void *data) {
-    if (data == nullptr)
-        return nullptr;
-
-    return (Block *)((char *)data - sizeof(Block));;
+static Block* getBlock(void *data) {
+    return (Block *)((char *)data - sizeof(Block) + sizeof(data));
 }
 
 static bool canSplit(Block *block, size_t size) {
-    return getBlockSize(block) >= size;
+    return block->size >= size + sizeof(Block);
 }
 
 static void split(Block *block, size_t size) {
-    size_t originalSize = getBlockSize(block);
-    setSize(block, size);
+    size_t originalSize = block->size;
+    block->size = size;
 
-    Block *next = getNext(block);
-    setFree(next, FREE);
-    setSize(next, originalSize - size - sizeof(Block));
+    Block* newBlock = (Block *)((char *)block + sizeof(Block) + size);
+    newBlock->size = originalSize - size;
+    newBlock->free = FREE;
+
+    newBlock->next = block->next;
+    if (newBlock->next)
+        newBlock->next->prev = newBlock;
+
+    block->next = newBlock;
+    newBlock->prev = block;
 }
 
 static bool canMerge(Block *block) {
-    Block *next = getNext(block);
-    return next != nullptr && next <= top && isFree(next);
+    Block* next = block->next;
+    return next != nullptr && next <= top && next->free;
 }
 
 static void merge(Block *block) {
-    Block *next = getNext(block);
-    size_t nextSize = getBlockSize(next);
-    size_t blockSize = getBlockSize(block);
+    Block* next = block->next;
 
-    std::cout << "\n[DEBUG] Merging block at " << block
-                  << " (size " << blockSize << ") with next block at " << next
-                  << " (size " << nextSize << ")";
+    if (next == nullptr || next->free == NOT_FREE) 
+        return;
 
-    setSize(block, blockSize + nextSize - sizeof(Block));
+    block->size += next->size + sizeof(Block);
+    block->next = next->next;
+
+    if (block->next)
+        block->next->prev = block;
 }
 
-//TODO: implement me
 static Block *bestFit(size_t size) {
-    return heapStart;
+    Block *best = nullptr;
+    for (Block *current = heapStart; current; current = current->next)
+        if (current->free && current->size >= size)
+            if (!best || current->size < best->size)
+                best = current;
+
+    return best;
 }
 
 static Block *firstFit(size_t size) {
-    auto block = heapStart;
-    
-    while (block && block <= top) {
-        if (isFree(block) && getBlockSize(block) >= size)
-            return block;
-        else
-            block = getNext(block);
-    }
+    for (Block *current = heapStart; current; current = current->next)
+        if (current->free && current->size >= size)
+            return current;
 
     return NO_FREE_BLOCK;
 }
 
-//TODO: implement me
-static Block *nextFit(size_t size) {
-    return heapStart;
+static Block* nextFit(size_t size) {
+    if (searchStart == nullptr)
+        searchStart = heapStart;
+
+    Block *current = searchStart;
+
+    do {
+        if (current->free && current->size >= size) {
+            searchStart = current->next;
+            return current;
+        }
+        current = current->next ? current->next : heapStart;
+    } while (current != searchStart);
+
+    return nullptr;
 }
 
 static Block *findBlock(size_t size) {
     Block *block;
 
     switch (searchMode) {
-
         case SearchMode::BestFit:
             block = bestFit(size);
             break;
-
         case SearchMode::FirstFit:
             block = firstFit(size);
             break;
-
         case SearchMode::NextFit:
             block = nextFit(size);
             break;
     }
 
-    if (block && canSplit(block, size)) 
+    if (block && canSplit(block, size))
         split(block, size);
-    
+
     return block;
 }
 
 static Block *requestFromOS(size_t size) {
-    auto block = (Block *)sbrk(0);
+    size = align(size + sizeof(Block));
+    Block* block = (Block*)sbrk(size);
 
-    if (sbrk(size) == (void *)-1)
+    if (block == (void*)-1)
         return NO_FREE_BLOCK;
-    
-    setSize(block, size - sizeof(Block));
-    setFree(block, FREE);
 
-    if (heapStart == nullptr)
-        heapStart = block;
-    else
-        getNext(top)->data = block;
-    
+    block->size = size - sizeof(Block);
+    block->free = FREE;
+    block->next = nullptr;
+    block->prev = top;
+
+    if (top)
+        top->next = block;
+
     top = block;
+
+    if (!heapStart)
+        heapStart = block;
+
     return block;
 }
 
-void _free(void *data) {
-    if (data == nullptr) 
+void _free(void* data) {
+    if (data == nullptr)
         return;
 
-    Block *block = getBlock(data);
-    setFree(block, FREE);
-    
-    std::cout << "\n[DEBUG] Freed block at " << block
-              << " with size " << getBlockSize(block) 
-              << " and free status " << isFree(block);
-              
-    if (canMerge(block))
-        merge(block);
-}
+    Block* block = getBlock(data);
+    block->free = FREE;
 
-void *_calloc(size_t n, size_t size) {
-    void *ptr = _malloc(n * size);
-    if (ptr)
-        memset(ptr, 0x0, n * size);
-    
-    return ptr;
+    while (block && canMerge(block)) {
+        merge(block);
+    }
 }
 
 void *_malloc(size_t size) {
@@ -238,37 +220,44 @@ void *_malloc(size_t size) {
         return nullptr;
 
     size = align(size);
-    
-    Block *block = findBlock(size);
+
+    Block* block = findBlock(size);
 
     if (block != NO_FREE_BLOCK) {
-        setFree(block, NOT_FREE);
+        block->free = NOT_FREE;
         return block->data;
     }
 
-    block = requestFromOS(size);
+    block = requestFromOS(size + sizeof(Block));
 
     if (block != NO_FREE_BLOCK) {
-        setSize(block, size);
-        setFree(block, NOT_FREE);
-
-        if (heapStart == nullptr)
-            heapStart = block;
-
-        std::cout << block->data << "\n";
-        top = block;
+        block->size = size;
+        block->free = NOT_FREE;
         return block->data;
     }
 
     return nullptr;
 }
 
-void *_realloc(void *data, size_t newSize) {
-    void *newBlock = _malloc(newSize);
-    Block *oldBlock = getBlock(data);
+void *_calloc(size_t n, size_t size) {
+    void* ptr = _malloc(n * size);
+    if (ptr)
+        memset(ptr, 0, n * size);
 
+    return ptr;
+}
+
+void *_realloc(void* data, size_t newSize) {
+    if (data == nullptr)
+        return _malloc(newSize);
+
+    Block* oldBlock = getBlock(data);
+    if (newSize <= oldBlock->size)
+        return data;
+
+    void* newBlock = _malloc(newSize);
     if (newBlock) {
-        memcpy(newBlock, data, getBlockSize(oldBlock));
+        memcpy(newBlock, data, oldBlock->size);
         _free(data);
     }
 

@@ -1,38 +1,33 @@
 # 💿 Memory allocator 
 
 ## 📦 Prerequisites
-- c/c++
+- Familiarity with C/C++ programming
   
 ## ⚡ How it works
-When we execute a process, our operating system allocates for it a virtual address space ( VAS ). With this method any process believes it has
-access to all your computer's memory.
+When a process is executed, the operating system allocates a Virtual Address Space (VAS) for it. This abstraction makes each process believe it has access to the entire memory of the computer, while in reality, it is working with a virtualized view of the physical memory.
 
-The process memory is divided into: <br/>
+The memory of a process is organized into distinct segments, listed below in order of increasing addresses: <br/>
 ( shown from lower address to higher address )
 1. *Text segment* contains executable code
-2. *Data segment* contains non-zero initialized static data
-3. *Bss segment* contains zero-initialized static data and data that will get value at run time
-4. ***Heap* contains dynamically allocated date ( we are going to focus on this )**
+2. *Data segment* stores non-zero initialized static data
+3. *Bss segment* holds uninitialized static variables or variables explicitly initialized to zero
+4. ***Heap* used for dynamically allocated memory (our focus in this explanation)**
 5. *Unmapped area* 
-6. *Stack* is used to store function's activetion records, local variables and parameters
+6. *Stack* is used to store function activetion records, local variables and parameters
 8. command line arguments, environment variables
 
-The stack is free to grow **downward** and it's top (actually the bottom ) is pointed by the sp ( stack pointer ). Increasing the stack size means 
-decreasing the sp.
+### 🔊 Stack and Heap Growth
+**Stack**: Grows downward (toward lower addresses). The current stack position is tracked by the stack pointer (`sp`), and increasing the stack size reduces the value of `sp`.
+**Heap**: Grows upward (toward higher addresses). Its top is tracked by the program break (`brk`). Increasing the heap size moves `brk` to a higher address.
 
-Similarly to the stack, the heap grows **upwards** and it's top is pointed by brk ( program break ). Increasing the heap size means increasing the 
-brk.
+In high-level programming, we deal with objects, but from the perspective of memory, these are just blocks of raw bytes. The system views these blocks as a series of bits, which can be cast to any data type at runtime.
 
-In high-level languages we deal with **objects**, but from a memory perspective we are just using a **memory block**.
-Everything computer knows is that this block is of a certain size and its content is treated as a sequence of bits.
-At runtime this block can be casted to be used in our program.
-
-A very basic idea is that increasing brk can give us more memory, there is the sbrk system call to do this. 
-- ```sbrk(0)``` gives the current brk address
-- ```sbrk(n)``` increases brk by n
-- if sbrk fails it will return ```(void*)-1```
+A fundamental method to increase available memory is by moving the brk. In Linux, this can be done with the `sbrk` system call:
+- `sbrk(0)` gives the current brk address
+- `sbrk(n)` ncreases brk by n bytes and returns the previous brk
+- if sbrk fails, it returns `(void*)-1`
   
-We can use the sbrk system call to expand the heap and obtain a pointer to new ready-to-use memory, 
+Using sbrk, a basic memory allocation function might look like this:
 ```c++
 void *malloc(size_t size) {
   void *p = sbrk(0);
@@ -43,20 +38,23 @@ void *malloc(size_t size) {
   return p;
 }
 ```
-but this has several problems:
-- how do i free that memory ?
-- how can i recycle a block ?
-- is it correct to do a system call every time we want some byte ?
+This naive approach raises several issues:
+1. how do we free that memory ?
+2. how can we recycle a block ?
+3. is it efficient to make a system call for every memory request ?
 
-Seen this, the simple sbrk implementation is probably not the right path. A better way is to store informations about each block near the block 
-itself, the malloc will ask for the requested space plus the header size. The block is represented by this structure:
+Clearly, a more sophisticated strategy is needed.
+To build a better allocator, we need to store metadata about each block of memory alongside the block itself. This metadata is stored in a header and can include:
 ```c++
-struct block {
+struct Block {
   size_t size;              // block's size
   bool free;                // the block is currently free
+  Block *prev;              // the block before this
+  Block *next;              // the block after this
   void *data;               // a pointer to the first word of user data, aka payload pointer
 };
 ```
+### ✔ Memory Alignment
 For faster access, a memory block should be **aligned** to it's machine's word size. What does this mean ? Each block should be of a multiple
 of 8 bytes on x64 machines or of 4 bytes on x32 machines. To align a size to a word's size we can use this function: 
 
@@ -65,34 +63,194 @@ static inline size_t align(size_t n) {
   return (n + sizeof(void*) - 1) & ~(sizeof(void*) - 1);
 }
 ```
-
+### 👍 Improved Allocation Workflow
 Ok, now we can request the new memory from the OS, add values inside the block structure and return the payload pointer. 
 What we built is just a sequential allocator, it is asking for more and more memory bumping the brk and is probably going to end it. 
 This is not a good implementation ( but still a valid one ) so we are going to modify it. 
 
 A very important point is that we will need to work with headers, so it can be vital to have a function that returns a block's header
 ```c++
-static block *getHeader(void *data) {
-  return (block *)((char *)data + sizeof(std::declval<block>().data) - sizeof(block));
+static Block* getBlock(void *data) {
+    return (Block *)((char *)data - sizeof(Block) + sizeof(data));
 }
 ```
 
-To improve our allocator we need the possibility to free blocks, to achieve this we have to set the used flag to ```false```:
+To improve our allocator we need the possibility to free blocks, to achieve this we have to set the used flag to `false`:
 ```c++
 void _free(void *data) {
-  auto block = getHeader(data);
+  auto block = getBlock(data);
   block->used = false;
 }
 ```
-Now we need to reuse blocks, this will reduce the number of system calls as our function will call sbrk only when all heap memory is already in use.
-The way to do this is by adding a function that searches for a free block which size is bigger than the requested size. But we will probably find 
-more than one block that satisfy our requests, so which is the function going to choose ? We have 3 algorithms for this:
+A better allocator:
+- Maintains a linked list of blocks.
+- Searches for free blocks to reuse memory.
+- Expands the heap only when necessary using sbrk.
+
+### 🔍 Finding Free Blocks
+We need a function to search for a free block that meets the requested size. Common algorithms include:
 - *First-fit* returns the first block bigger than the requested size
 - *Next-fit* is a variant of the first-fit, it returns the first block bigger than the request size searching from the last successful position on the heap
 - *Best-fit* returns the block that has the nearest ( but bigger ) size to the requested one
-  
-For this malloc we are going to use a mix of the 3 algorithms, to obtain the best performances.
 
+Each algorithm iterates over the linked list of blocks to find a suitable one. For the algorithms to function, we maintain these pointers:
+```c++
+static Block *heapStart = nullptr;        // Address of the first block in the heap
+static Block *searchStart = nullptr;      // Starting point for searches
+static Block *top = nullptr;              // Current top of the heap
+```
+If no suitable free block is found, the allocator requests more memory from the OS:
+```c++
+static Block *requestFromOS(size_t size) {
+    size = align(size + sizeof(Block));
+    Block* block = (Block*)sbrk(size);
+
+    if (block == (void*)-1)
+        return NO_FREE_BLOCK;
+
+    block->size = size - sizeof(Block);
+    block->free = FREE;
+    block->next = nullptr;
+    block->prev = top;
+
+    if (top)
+        top->next = block;
+
+    top = block;
+
+    if (!heapStart)
+        heapStart = block;
+
+    return block;
+}
+```
+This function will request memory from the operating system, cast it to `Block` and set field values.
+Now our malloc will look like this:
+```c++
+void *_malloc(size_t size) {
+    if (size <= 0)
+        return nullptr;
+
+    size = align(size);
+
+    Block* block = findBlock(size);
+
+    if (block != NO_FREE_BLOCK) {
+        block->free = NOT_FREE;
+        return block->data;
+    }
+
+    block = requestFromOS(size + sizeof(Block));
+
+    if (block != NO_FREE_BLOCK) {
+        block->size = size;
+        block->free = NOT_FREE;
+        return block->data;
+    }
+
+    return nullptr;
+}
+```
+### 🧩 Merging 
+It can really be useful to merge two free blocks, in order to **iterate faster**, **avoid fragmentation** and **reduce the number of system call**.
+```c++
+static bool canMerge(Block *block) {
+    Block* next = block->next;
+    return next != nullptr && next <= top && next->free;
+}
+
+static void merge(Block *block) {
+    Block* next = block->next;
+
+    if (next == nullptr || next->free == NOT_FREE) 
+        return;
+
+    block->size += next->size + sizeof(Block);
+    block->next = next->next;
+
+    if (block->next)
+        block->next->prev = block;   
+}
+```
+And when do we merge two blocks ? When we free them, so we have to update our free function 
+```c++
+void _free(void* data) {
+    if (data == nullptr)
+        return;
+
+    Block* block = getBlock(data);
+    block->free = FREE;
+
+    while (block && canMerge(block)) {
+        merge(block);
+    }
+
+    Block *prev = block->prev;
+    while (prev && prev->free && canMerge(prev)) {
+        merge(prev);
+        prev = prev->prev;
+    }
+```
+### 🍴 Splitting
+We are almost done, what if we have a block of size 64 and we only needed 32 ? Our malloc is going to take all of the 64 block.
+It is very important to split big blocks
+```c++
+static bool canSplit(Block *block, size_t size) {
+    return block->size >= size + sizeof(Block);
+}
+
+static void split(Block *block, size_t size) {
+    size_t originalSize = block->size;
+    block->size = size;
+
+    Block* newBlock = (Block *)((char *)block + sizeof(Block) + size);
+    newBlock->size = originalSize - size;
+    newBlock->free = FREE;
+
+    newBlock->next = block->next;
+    if (newBlock->next)
+        newBlock->next->prev = newBlock;
+
+    block->next = newBlock;
+    newBlock->prev = block;
+}
+```
+### 🐧 Cross-Platform Compatibility
+This is, we have completed our memory allocator. I wanted to make this allocator cross platform, so i mapped sbrk to VirtualAlloc using this macro:
+```c++
+#if defined(__linux__)
+    #include <sys/mman.h>
+    #include <unistd.h>
+#elif defined(__WIN32__) || defined(__WIN64__)
+    #include <windows.h>
+
+    #define sbrk(X) fake_sbrk(X)
+
+    void* fake_sbrk(size_t increment) {
+        constexpr size_t MAX_HEAP_SIZE = 1024 * 1024;
+
+        static char *heapStart = nullptr;
+        static char *currentBreak = nullptr;
+
+        if (heapStart == nullptr) {
+            heapStart = (char*)VirtualAlloc(nullptr, MAX_HEAP_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            if (heapStart == nullptr)
+                return (void *)-1;
+
+            currentBreak = heapStart;
+        }
+
+        char *newBreak = currentBreak + increment;
+        if (newBreak < heapStart || newBreak > heapStart + MAX_HEAP_SIZE)
+            return (void *)-1;
+
+        void *oldBreak = currentBreak;
+        currentBreak = newBreak;
+
+        return oldBreak;
+    }
+#endif
+```
 
 ## 🌎 Resources 
 - Glibc malloc implementation: https://sourceware.org/glibc/wiki/MallocInternals

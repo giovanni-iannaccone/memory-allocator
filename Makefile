@@ -1,21 +1,28 @@
-CC = gcc
-CFLAGS = -g -Wall
+CXX = g++
+CXXFLAGS = -Wall -Wextra -Wpedantic -std=c++17 -Iinclude -g
 
-SRC := src
-INCLUDE := include
-BIN := bin
+SRC_DIR = src
+TEST_DIR = test
+INCLUDE_DIR = include
+BUILD_DIR = build
+BIN_DIR = bin
 
-SOURCES := $(wildcard $(SRC)/*.c)
-OBJECTS := $(patsubst $(SRC)/%.c, $(OBJ)/%.o, $(SOURCES))
+SRCS = $(SRC_DIR)/allocator.cpp $(TEST_DIR)/test.cpp
+OBJS = $(SRCS:%.cpp=$(BUILD_DIR)/%.o)
 
-.PHONY: clean create-build-folder
+TARGET = $(BIN_DIR)/test_allocator
 
-all: create-build-folder $(BIN)
+all: $(TARGET)
 
+$(TARGET): $(OBJS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) $^ -o $@
 
-
-create-build-folder:
-	@mkdir -p $(BUILD) $(OBJ)
+$(BUILD_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	@rm -rf $(BUILD)
+	rm -rf $(BUILD_DIR) $(BIN_DIR)
+
+.PHONY: all clean

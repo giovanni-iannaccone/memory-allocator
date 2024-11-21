@@ -65,9 +65,9 @@ void forthTest() {
     void *ptr4 = _malloc(32);
 
     if (ptr4 != ptr2)
-        std::cout << "Block is't correctly recycled\n";
+        std::cout << "\nBlock isn't correctly recycled\n";
     else 
-        std::cout << "Block is correctly recycled";
+        std::cout << "\nBlock is correctly recycled";
 
     _free(ptr1);
     _free(ptr3);

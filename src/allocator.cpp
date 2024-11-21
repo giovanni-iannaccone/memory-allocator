@@ -121,7 +121,7 @@ static void merge(Block *block) {
     block->next = next->next;
 
     if (block->next)
-        block->next->prev = block;
+        block->next->prev = block;   
 }
 
 static Block *bestFit(size_t size) {
@@ -212,6 +212,12 @@ void _free(void* data) {
 
     while (block && canMerge(block)) {
         merge(block);
+    }
+
+    Block *prev = block->prev;
+    while (prev && prev->free && canMerge(prev)) {
+        merge(prev);
+        prev = prev->prev;
     }
 }
 

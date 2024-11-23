@@ -2,10 +2,7 @@
 
 #include "../include/allocator.h"
 
-#if defined(__linux__)
-    #include <sys/mman.h>
-    #include <unistd.h>
-#elif defined(__WIN32__) || defined(__WIN64__)
+#if defined(__WIN32__) || defined(__WIN64__)
     #include <windows.h>
 
     #define sbrk(X) fake_sbrk(X)
@@ -33,6 +30,9 @@
 
         return oldBreak;
     }
+#else 
+    #include <sys/mman.h>
+    #include <unistd.h>
 #endif
 
 #define FREE            true

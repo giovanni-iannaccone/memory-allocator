@@ -47,16 +47,14 @@ struct Block {
     char data[1];
 };
 
-enum class SearchMode {
-    BestFit,
-    FirstFit,
-    NextFit,
-};
-
 static Block *heapStart = nullptr;
 static Block *searchStart = nullptr;
 static Block *top = nullptr;
 static SearchMode searchMode = SearchMode::FirstFit;
+
+void selectAlgorithm(SearchMode algorithm) {
+    searchMode = algorithm;
+}
 
 static inline size_t align(size_t size) {
     return (size + (sizeof(void*) - 1)) & -sizeof(void*);
@@ -126,10 +124,17 @@ static void merge(Block *block) {
 
 static Block *bestFit(size_t size) {
     Block *best = nullptr;
-    for (Block *current = heapStart; current; current = current->next)
-        if (current->free && current->size >= size)
-            if (!best || current->size < best->size)
+
+    for (Block *current = heapStart; current; current = current->next) {
+        
+        if (current->free && current->size >= size) {
+            if (current->size == size) {
+                return current;
+            } else if (!best || current->size < best->size) {
                 best = current;
+            }
+        }
+    }
 
     return best;
 }

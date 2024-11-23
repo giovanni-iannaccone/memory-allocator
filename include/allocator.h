@@ -4,6 +4,14 @@
     #include <stddef.h>
     #define DEBUG
 
+    enum class SearchMode {
+        BestFit,
+        FirstFit,
+        NextFit,
+    };
+
+    void selectAlgorithm(SearchMode algorithm);
+    
     void  _free(void* data);
     void *_malloc(size_t size);
     void *_calloc(size_t n, size_t size);

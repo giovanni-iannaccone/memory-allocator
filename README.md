@@ -218,10 +218,7 @@ static void split(Block *block, size_t size) {
 ### 🐧 Cross-Platform Compatibility
 This is, we have completed our memory allocator. I wanted to make this allocator cross platform, so i mapped sbrk to VirtualAlloc using this macro:
 ```c++
-#if defined(__linux__)
-    #include <sys/mman.h>
-    #include <unistd.h>
-#elif defined(__WIN32__) || defined(__WIN64__)
+#if defined(__WIN32__) || defined(__WIN64__)
     #include <windows.h>
 
     #define sbrk(X) fake_sbrk(X)
@@ -249,6 +246,9 @@ This is, we have completed our memory allocator. I wanted to make this allocator
 
         return oldBreak;
     }
+#else 
+    #include <sys/mman.h>
+    #include <unistd.h>
 #endif
 ```
 

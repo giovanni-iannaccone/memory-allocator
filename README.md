@@ -56,7 +56,7 @@ struct Block {
 ```
 ### ✔ Memory Alignment
 For faster access, a memory block should be **aligned** to it's machine's word size. What does this mean ? Each block should be of a multiple
-of 8 bytes on x64 machines or of 4 bytes on x32 machines. To align a size to a word's size we can use this function: 
+of 8 bytes on x64 machines or 4 bytes on x32 machines. To align a size to a word's size we can use this function: 
 
 ```c++
 static inline size_t align(size_t n) {
@@ -64,11 +64,11 @@ static inline size_t align(size_t n) {
 }
 ```
 ### 👍 Improved Allocation Workflow
-Ok, now we can request the new memory from the OS, add values inside the block structure and return the payload pointer. 
-What we built is just a sequential allocator, it is asking for more and more memory bumping the brk and is probably going to end it. 
-This is not a good implementation ( but still a valid one ) so we are going to modify it. 
+Now, we can request new memory from the OS, add values inside the block structure, and return the payload pointer. What we built so far is just 
+a sequential allocator; it asks for more and more memory, bumping the brk, and is likely to run out of space eventually. This is not a good
+implementation (but still a valid one), so we are going to improve it.
 
-A very important point is that we will need to work with headers, so it can be vital to have a function that returns a block's header
+An important point is that we will need to work with headers, so it can be crucial to have a function that returns a block's header:
 ```c++
 static Block* getBlock(void *data) {
     return (Block *)((char *)data - sizeof(Block) + sizeof(data));
@@ -216,7 +216,7 @@ static void split(Block *block, size_t size) {
 }
 ```
 ### 🐧 Cross-Platform Compatibility
-This is, we have completed our memory allocator. I wanted to make this allocator cross platform, so i mapped sbrk to VirtualAlloc using this macro:
+Now that we've completed our memory allocator, I wanted to make it cross-platform, so I mapped ```sbrk``` to ```VirtualAlloc``` using this macro:
 ```c++
 #if defined(__WIN32__) || defined(__WIN64__)
     #include <windows.h>
